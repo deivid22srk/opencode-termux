@@ -67,3 +67,20 @@ git fetch upstream dev
 git merge upstream/dev     # os arquivos deste fork não tocam no código do servidor
 git push origin dev
 ```
+
+## Robustez do instalador e troubleshooting (atualização pós-feedback)
+
+- O instalador agora faz uma **verificação prévia do curl** no Termux: se o
+  binário estiver quebrado pelo caso clássico de pacotes dessincronizados
+  (`CANNOT LINK EXECUTABLE "curl": cannot locate symbol
+  "SSL_set_quic_tls_early_data_enabled"` — libcurl compilado contra OpenSSL
+  mais novo que a libopenssl instalada), ele avisa imediatamente com o
+  conserto (`termux-change-repo` + `apt update && apt full-upgrade`) em vez de
+  falhar mais adiante, quando o `git` (que também usa libcurl) fosse clonar.
+- Os avisos de `pkg update`/`pkg upgrade` com falha agora apontam
+  explicitamente para `termux-change-repo` (mirror ausente/quebrado é a causa
+  mais comum — sintoma: "No mirror or mirror group selected").
+- READMEs (EN e pt-BR) ganharam a seção **"Problemas comuns no Termux"** com
+  os três sintomas mais frequentes (curl quebrado, mirror não selecionado e
+  ambiente irrecuperável) e os comandos de correção de cada um, incluindo a
+  alternativa de instalação via `wget` (que não depende do libcurl).

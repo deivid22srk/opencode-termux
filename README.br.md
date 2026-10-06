@@ -93,6 +93,51 @@ Observações:
   roda no Android. Se algo falhar, rode o instalador de novo — ele retoma de onde
   parou. Veja `CHANGES.md`.
 
+#### Problemas comuns no Termux
+
+**1. `CANNOT LINK EXECUTABLE "curl": cannot locate symbol "SSL_set_quic_tls_early_data_enabled"`**
+
+Não é um problema do instalador: o `curl` do seu Termux está quebrado porque os
+pacotes estão dessincronizados — o `libcurl` foi compilado contra um OpenSSL mais
+novo do que a `libopenssl` instalada. Enquanto não corrigir, **todos** os
+programas que usam libcurl falham (o `git`, que o instalador usa para clonar,
+incluído). Conserte o ambiente primeiro:
+
+```bash
+termux-change-repo                   # selecione um mirror (ex.: Mirror group → All)
+apt update && apt full-upgrade -y    # sincroniza libcurl e libopenssl
+curl --version                       # deve funcionar agora
+```
+
+Depois rode novamente o comando de instalação. Se quiser evitar o `curl`, o
+`wget` não depende do libcurl e baixa o instalador do mesmo jeito:
+
+```bash
+pkg install -y wget && wget -qO- https://raw.githubusercontent.com/deivid22srk/opencode-termux/dev/install-termux.sh | bash
+```
+
+**2. `No mirror or mirror group selected`**
+
+O Termux está sem mirror configurado — sem isso o `apt` não consegue baixar
+pacotes, e é exatamente por isso que o problema 1 acontece e não se corrige
+sozinho. Rode `termux-change-repo`, escolha um mirror na lista e rode
+`apt update` de novo. Alternativa não interativa:
+
+```bash
+echo "deb https://packages.termux.dev/apt/termux-main stable main" > "$PREFIX/etc/apt/sources.list"
+apt update && apt full-upgrade -y
+```
+
+**3. Nada acima resolveu**
+
+O estado dos pacotes pode estar muito antigo ou inconsistente para conserto
+in-place. Faça backup dos seus dados, desinstale e reinstale o app Termux
+(versão atual do [GitHub](https://github.com/termux/termux-app/releases) ou
+F-Droid — a distribuição pela Play Store está descontinuada) e rode o comando
+de instalação num ambiente novo. O instalador também detecta esse caso
+antecipadamente: se o `curl` estiver quebrado, ele avisa com as instruções
+acima antes de tentar qualquer coisa.
+
 ### App desktop (BETA)
 
 O OpenCode também está disponível como aplicativo desktop. Baixe diretamente pela [página de releases](https://github.com/anomalyco/opencode/releases) ou em [opencode.ai/download](https://opencode.ai/download).

@@ -66,12 +66,31 @@ fi
 
 info "Ambiente: $([[ $IS_TERMUX == true ]] && echo "Termux (Android)" || echo "Linux") · arquitetura ${ARCH} · destino ${INSTALL_DIR}"
 
+# ── verificação prévia: curl/git precisam do libcurl funcionando ────────────
+# Sintoma clássico de Termux com pacotes dessincronizados: o libcurl foi
+# compilado contra um OpenSSL mais novo que o instalado e QUALQUER binário
+# que o carregue (curl, git) falha com "CANNOT LINK EXECUTABLE ... cannot
+# locate symbol ...". Detectamos isso AGORA, com mensagem clara, em vez de
+# falhar no meio da instalação.
+if $IS_TERMUX && command -v curl >/dev/null 2>&1; then
+  if ! curl --version >/dev/null 2>&1; then
+    fail "O curl do seu Termux está quebrado (erro de linkagem libcurl/OpenSSL)."
+    printf '%s\n' \
+      "Conserte o ambiente antes de rodar este instalador:" \
+      "  termux-change-repo                  # selecione um mirror" \
+      "  apt update && apt full-upgrade -y   # sincroniza libcurl/libopenssl" \
+      "  curl --version                      # deve funcionar agora" \
+      "Detalhes: seção 'Problemas comuns no Termux' do README." >&2
+    exit 1
+  fi
+fi
+
 # ── 1. dependências do sistema ───────────────────────────────────────────────
 if $IS_TERMUX; then
   info "Atualizando pacotes do Termux (pkg update)…"
-  pkg update -y || warn "pkg update falhou; seguindo com os índices existentes."
+  pkg update -y || warn "pkg update falhou — causa mais comum: mirror ausente/quebrado. Rode 'termux-change-repo', selecione um mirror e rode este script de novo. Seguindo com os índices existentes."
   info "Atualizando pacotes instalados (pkg upgrade)…"
-  DEBIAN_FRONTEND=noninteractive pkg upgrade -y || warn "pkg upgrade falhou (pode haver pacotes retidos); seguindo mesmo assim."
+  DEBIAN_FRONTEND=noninteractive pkg upgrade -y || warn "pkg upgrade falhou (pode haver pacotes retidos). Se o curl estiver quebrado, rode manualmente: apt update && apt full-upgrade -y — depois rode este script de novo. Seguindo mesmo assim."
   info "Instalando git, curl, unzip, ripgrep e bash…"
   pkg install -y git curl unzip ripgrep bash
 else

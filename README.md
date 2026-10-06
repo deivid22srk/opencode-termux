@@ -91,6 +91,50 @@ Notes:
   the automatically downloaded glibc binary does not run on Android. If you hit an
   issue, re-run the installer — it resumes where it stopped. See `CHANGES.md`.
 
+#### Common Termux problems
+
+**1. `CANNOT LINK EXECUTABLE "curl": cannot locate symbol "SSL_set_quic_tls_early_data_enabled"`**
+
+This is not an installer issue: your Termux `curl` is broken because packages
+are out of sync — `libcurl` was built against a newer OpenSSL than the
+installed `libopenssl`. Until fixed, **every** program that links libcurl fails
+(including `git`, which the installer uses to clone). Fix the environment
+first:
+
+```bash
+termux-change-repo                   # select a mirror (e.g. Mirror group → All)
+apt update && apt full-upgrade -y    # re-syncs libcurl and libopenssl
+curl --version                       # should work now
+```
+
+Then re-run the install command. If you would rather avoid `curl`, `wget`
+doesn't depend on libcurl and fetches the installer just as well:
+
+```bash
+pkg install -y wget && wget -qO- https://raw.githubusercontent.com/deivid22srk/opencode-termux/dev/install-termux.sh | bash
+```
+
+**2. `No mirror or mirror group selected`**
+
+Termux has no mirror configured — without one `apt` cannot download packages,
+which is exactly why problem 1 happens and never self-heals. Run
+`termux-change-repo`, pick a mirror from the list, then run `apt update`
+again. Non-interactive alternative:
+
+```bash
+echo "deb https://packages.termux.dev/apt/termux-main stable main" > "$PREFIX/etc/apt/sources.list"
+apt update && apt full-upgrade -y
+```
+
+**3. Nothing above helped**
+
+The package state may be too old or inconsistent to fix in place. Back up your
+data, uninstall and reinstall the Termux app (current build from
+[GitHub](https://github.com/termux/termux-app/releases) or F-Droid — the Play
+Store distribution is deprecated), then run the install command in a fresh
+environment. The installer also detects this situation up front: if `curl` is
+broken it prints the instructions above instead of failing halfway through.
+
 ### Desktop App (BETA)
 
 OpenCode is also available as a desktop application. Download directly from the [releases page](https://github.com/anomalyco/opencode/releases) or [opencode.ai/download](https://opencode.ai/download).
