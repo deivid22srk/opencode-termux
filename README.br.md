@@ -64,6 +64,35 @@ nix run nixpkgs#opencode           # ou github:anomalyco/opencode para a branch 
 > [!TIP]
 > Remova versões anteriores a 0.1.x antes de instalar.
 
+### Instalação no Termux (Android)
+
+Este fork inclui um instalador de comando único e idempotente para o Termux, que
+instala o Bun (build oficial para Android), clona o repositório, instala as
+dependências e deixa o comando `opencode` disponível no PATH:
+
+```bash
+pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/deivid22srk/opencode-termux/dev/install-termux.sh | bash
+```
+
+Ao terminar, inicie o servidor (necessário para a extensão
+[VibeBridge](https://github.com/deivid22srk/VibeBridge) e outros clientes HTTP):
+
+```bash
+opencode serve --port 4096
+# opcional: proteja o servidor se ele ficar visível na sua rede
+OPENCODE_SERVER_PASSWORD="uma-senha" opencode serve --port 4096 --hostname 0.0.0.0
+```
+
+Observações:
+- O OpenCode roda direto do fonte com o Bun — não é preciso compilar binário.
+- O script é idempotente: rode de novo para atualizar uma instalação existente.
+- Validado em Linux (x64, Debian); **ainda não validado em um aparelho
+  Android/Termux real**. Limitações conhecidas no Android: os recursos de terminal
+  interativo (PTY) podem não funcionar (o `bun-pty` não tem build bionic) e o
+  ripgrep é instalado via `pkg` porque o binário glibc baixado automaticamente não
+  roda no Android. Se algo falhar, rode o instalador de novo — ele retoma de onde
+  parou. Veja `CHANGES.md`.
+
 ### App desktop (BETA)
 
 O OpenCode também está disponível como aplicativo desktop. Baixe diretamente pela [página de releases](https://github.com/anomalyco/opencode/releases) ou em [opencode.ai/download](https://opencode.ai/download).
