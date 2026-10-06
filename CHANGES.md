@@ -84,3 +84,48 @@ git push origin dev
   os três sintomas mais frequentes (curl quebrado, mirror não selecionado e
   ambiente irrecuperável) e os comandos de correção de cada um, incluindo a
   alternativa de instalação via `wget` (que não depende do libcurl).
+
+## API direta de ferramentas + build no GitHub Actions (atualização v2)
+
+Duas adições motivadas por uso real em um aparelho Termux (log de erros do
+usuário: centenas de `EACCES: Permission denied: failed to link package`
+durante `bun install` no aparelho).
+
+### 1. API direta de ferramentas (opt-in, para clientes locais confiáveis)
+
+- Novo grupo httpapi `tool` (fork): `GET /tool` lista as ferramentas
+  disponíveis e `POST /tool/:name` com `{"arguments": {...}}` executa UMA
+  ferramenta (bash, read, write, edit, glob, grep...) direto pelo
+  ToolRegistry normal - com validação de argumentos, truncamento de saída e
+  spans, mas SEM criar sessão/mensagem e SEM pedidos de permissão (o `ask` do
+  contexto resolve automaticamente).
+- **Opt-in via `OPENCODE_TOOL_API=1`**: um `opencode serve` comum mantém o
+  comportamento interativo de sempre (permissões intactas). Sem a variável, a
+  rota responde 403 com instruções.
+- Motivação: a extensão VibeBridge no "modo agente em sites" (conversa no
+  DeepSeek/ChatGPT etc., ferramentas executadas no OpenCode) precisa executar
+  chamadas de ferramenta individuais escolhidas pelo modelo do site - o fluxo
+  de sessão/prompt do OpenCode não serve para isso.
+- Arquivos: `server/routes/instance/httpapi/groups/tool.ts` e
+  `handlers/tool.ts` (somente adições; nenhum arquivo upstream alterado
+  além do registro do grupo em `api.ts`/`server.ts`).
+- Segurança: a superfície é equivalente à do modo serve normal (alguém com
+  acesso HTTP já pode dirigir o agente por prompts), mas a diferença
+  semântica (sem prompts de permissão) é o motivo do opt-in explícito. Use
+  `OPENCODE_SERVER_PASSWORD` se o servidor estiver exposto.
+
+### 2. Build do bundle no GitHub Actions (workflow `build.yml`)
+
+- `.github/workflows/build.yml`: em push na branch `dev` e por dispatch,
+  roda `bun install --frozen-lockfile` num runner **aarch64** (mesma
+  arquitetura dos aparelhos), valida que o servidor sobe (`/global/health` +
+  `GET /tool`), empacota **fonte + node_modules** em um tarball e publica na
+  release rolling `termux-bundle` (além de artifact de 7 dias).
+- `install-termux.sh` v2: o instalador agora **baixa o bundle pronto** e
+  extrai em `~/opencode-termux` (nada é compilado/resolvido no aparelho).
+  Fallback automático para o modo fonte (clone + `bun install`) se o bundle
+  não estiver disponível; `INSTALL_FROM_SOURCE=1` força o modo fonte.
+- No modo fonte no Termux, `bun install` agora usa `--backend=copyfile`:
+  o backend padrão (hardlink) falha no filesystem do Android com o erro
+  `EACCES: Permission denied: failed to link package` visto no log do
+  usuário; copyfile contorna (mais lento/maior, porém confiável).

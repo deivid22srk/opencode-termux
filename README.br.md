@@ -74,14 +74,27 @@ dependências e deixa o comando `opencode` disponível no PATH:
 pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/deivid22srk/opencode-termux/dev/install-termux.sh | bash
 ```
 
+O instalador baixa um **bundle pronto do GitHub Actions** (fonte + dependências
+já instaladas — nada é compilado ou resolvido no aparelho, o que também evita o
+`EACCES: failed to link package` do `bun install` no Android). Se o bundle não
+estiver disponível, ele cai automaticamente para o modo fonte, com
+`bun install --backend=copyfile` no Termux.
+
 Ao terminar, inicie o servidor (necessário para a extensão
 [VibeBridge](https://github.com/deivid22srk/VibeBridge) e outros clientes HTTP):
 
 ```bash
-opencode serve --port 4096
+OPENCODE_TOOL_API=1 opencode serve --port 4096
 # opcional: proteja o servidor se ele ficar visível na sua rede
-OPENCODE_SERVER_PASSWORD="uma-senha" opencode serve --port 4096 --hostname 0.0.0.0
+OPENCODE_SERVER_PASSWORD="uma-senha" OPENCODE_TOOL_API=1 opencode serve --port 4096 --hostname 0.0.0.0
 ```
+
+`OPENCODE_TOOL_API=1` habilita a API direta de ferramentas (`GET /tool`,
+`POST /tool/:name`) usada pelo **modo agente em sites** da VibeBridge: você
+conversa pela própria interface do DeepSeek/ChatGPT/Gemini etc. e as
+ferramentas (ler, escrever, editar, bash...) executam aqui, como se o modelo do
+site fosse um modelo nativo do OpenCode. Veja o README da
+[VibeBridge](https://github.com/deivid22srk/VibeBridge).
 
 Observações:
 - O OpenCode roda direto do fonte com o Bun — não é preciso compilar binário.

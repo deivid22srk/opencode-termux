@@ -11,24 +11,27 @@
 # O que ele faz:
 #   1. Atualiza pacotes (Termux) e instala git, curl, unzip, ripgrep e bash;
 #   2. Instala o Bun oficial para Android aarch64 (ou para o seu Linux);
-#   3. Clona este repositório (shallow) em ~/opencode-termux (ou atualiza);
-#   4. Instala as dependências com `bun install` (roda direto do fonte - não
-#      é preciso compilar binário);
-#   5. Cria o comando `opencode` no PATH ($PREFIX/bin no Termux);
-#   6. Mostra como subir o servidor para conectar a VibeBridge.
+#   3. Baixa o bundle pronto do CI (fonte + node_modules já instalados, do
+#      GitHub Actions - workflow build.yml) e extrai em ~/opencode-termux.
+#      Se o bundle não estiver disponível, clona o repositório (shallow) e
+#      instala as dependências no aparelho (com --backend=copyfile no Termux,
+#      contornando o "EACCES: failed to link package" do backend de hardlink);
+#   4. Cria o comando `opencode` no PATH ($PREFIX/bin no Termux);
+#   5. Mostra como subir o servidor para conectar a VibeBridge.
 #
 # Variáveis de ambiente opcionais:
-#   REPO_URL      (padrão: https://github.com/deivid22srk/opencode-termux.git)
-#   REPO_BRANCH   (padrão: dev)
-#   INSTALL_DIR   (padrão: $HOME/opencode-termux)
-#   BUN_VERSION   (padrão: 1.3.14 - a mesma do packageManager do projeto)
-
-set -euo pipefail
+#   REPO_URL            (padrão: https://github.com/deivid22srk/opencode-termux.git)
+#   REPO_BRANCH         (padrão: dev)
+#   INSTALL_DIR         (padrão: $HOME/opencode-termux)
+#   BUN_VERSION         (padrão: 1.3.14 - a mesma do packageManager do projeto)
+#   RELEASE_ASSET_URL   (padrão: release rolling "termux-bundle" deste repo)
+#   INSTALL_FROM_SOURCE (1 = pula o bundle e força clone + bun install local)
 
 REPO_URL="${REPO_URL:-https://github.com/deivid22srk/opencode-termux.git}"
 REPO_BRANCH="${REPO_BRANCH:-dev}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/opencode-termux}"
 BUN_VERSION="${BUN_VERSION:-1.3.14}"
+RELEASE_ASSET_URL="${RELEASE_ASSET_URL:-https://github.com/deivid22srk/opencode-termux/releases/download/termux-bundle/opencode-termux-bundle.tar.gz}"
 
 # ── utilidades de saída ──────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -138,24 +141,58 @@ case ":$PATH:" in
   *) warn "$BIN_DIR não está no PATH. Adicione ao seu ~/.bashrc:  export PATH=\"$BIN_DIR:\$PATH\"" ;;
 esac
 
-# ── 3. clonar / atualizar o repositório ──────────────────────────────────────
-if [[ -d "$INSTALL_DIR/.git" ]]; then
-  info "Repositório já existe em $INSTALL_DIR - atualizando…"
-  git -C "$INSTALL_DIR" fetch --depth 1 origin "$REPO_BRANCH" || warn "fetch falhou (sem internet?); usando o código já baixado."
-  git -C "$INSTALL_DIR" pull --ff-only origin "$REPO_BRANCH" \
-    || warn "Não foi possível avançar (pull --ff-only). A instalação continua com o código existente; se quiser forçar, remova a pasta e rode de novo."
-else
-  info "Clonando $REPO_URL (branch $REPO_BRANCH, shallow)…"
-  rm -rf "$INSTALL_DIR"
-  git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
+# ── 3. código: bundle do CI (rápido) ou clone do fonte (fallback) ──────────
+BUNDLED=false
+if [[ "${INSTALL_FROM_SOURCE:-}" != "1" ]]; then
+  TMP="$(mktemp -d)"
+  info "Baixando o bundle pronto do CI (fonte + dependências já instaladas)…"
+  if curl -fL --retry 3 --progress-bar "$RELEASE_ASSET_URL" -o "$TMP/bundle.tar.gz"; then
+    rm -rf "$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR"
+    if tar -xzf "$TMP/bundle.tar.gz" -C "$INSTALL_DIR"; then
+      BUNDLED=true
+      ok "Bundle extraído em $INSTALL_DIR (nada para compilar no aparelho)."
+    else
+      warn "Falhou ao extrair o bundle; caindo para o modo fonte."
+    fi
+  else
+    warn "Bundle do CI indisponível ($RELEASE_ASSET_URL); caindo para o modo fonte (clone + bun install)."
+  fi
+  rm -rf "$TMP"
+fi
+
+if [[ "$BUNDLED" != true ]]; then
+  if [[ -d "$INSTALL_DIR/.git" ]]; then
+    info "Repositório já existe em $INSTALL_DIR - atualizando…"
+    git -C "$INSTALL_DIR" fetch --depth 1 origin "$REPO_BRANCH" || warn "fetch falhou (sem internet?); usando o código já baixado."
+    git -C "$INSTALL_DIR" pull --ff-only origin "$REPO_BRANCH" \
+      || warn "Não foi possível avançar (pull --ff-only). A instalação continua com o código existente; se quiser forçar, remova a pasta e rode de novo."
+  else
+    info "Clonando $REPO_URL (branch $REPO_BRANCH, shallow)…"
+    rm -rf "$INSTALL_DIR"
+    git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
+  fi
 fi
 ok "Código pronto em $INSTALL_DIR."
 
-# ── 4. dependências do projeto ───────────────────────────────────────────────
-info "Instalando dependências com bun install (pode demorar alguns minutos; ~1,5 GB de disco)…"
-git -C "$INSTALL_DIR" config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
-(cd "$INSTALL_DIR" && "$BUN_BIN" install)
-ok "Dependências instaladas."
+# ── 4. dependências do projeto (puladas quando o bundle já as traz) ───────
+if [[ "$BUNDLED" == true ]]; then
+  ok "Dependências já incluídas no bundle do CI."
+else
+  info "Instalando dependências com bun install (pode demorar alguns minutos; ~1,5 GB de disco)…"
+  git -C "$INSTALL_DIR" config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+  if $IS_TERMUX; then
+    # Termux/Android: o backend padrão (hardlink) do `bun install` falha com
+    # "EACCES: Permission denied: failed to link package" - o filesystem do
+    # Android não aceita os hardlinks que o bun cria entre a cache e os
+    # node_modules. O backend copyfile contorna isso (mais lento e maior,
+    # porém confiável). Prefira o bundle do CI, que evita esta etapa toda.
+    (cd "$INSTALL_DIR" && "$BUN_BIN" install --backend=copyfile)
+  else
+    (cd "$INSTALL_DIR" && "$BUN_BIN" install)
+  fi
+  ok "Dependências instaladas."
+fi
 
 # ── 5. comando `opencode` no PATH ────────────────────────────────────────────
 WRAPPER="$BIN_DIR/opencode"
@@ -188,10 +225,12 @@ ${C_OK}════════════════════════�
 
  1) Inicie o servidor (deixe esta sessão do Termux aberta):
 
-      opencode serve --port 4096
+      OPENCODE_TOOL_API=1 opencode serve --port 4096
 
-    (opcional, recomendado se estiver na mesma rede: proteja o servidor)
-      OPENCODE_SERVER_PASSWORD="uma-senha" opencode serve --port 4096 --hostname 0.0.0.0
+    (OPENCODE_TOOL_API=1 habilita a API de ferramentas usada pelo modo
+    "agente em sites" da VibeBridge. Opcional, se o servidor ficar visível
+    na rede: proteja-o com senha e exponha)
+      OPENCODE_SERVER_PASSWORD="uma-senha" OPENCODE_TOOL_API=1 opencode serve --port 4096 --hostname 0.0.0.0
 
  2) No navegador (PC ou no próprio celular), na extensão VibeBridge:
     - clique no ícone da extensão → "▲ OpenCode panel"
@@ -200,6 +239,12 @@ ${C_OK}════════════════════════�
     - se usar senha, preencha o campo "Password"
     - em "Project directory", informe a pasta do seu projeto no aparelho
       (ex.: /data/data/com.termux/files/home/meu-projeto)
+
+    MODO "AGENTE EM SITES" (converse no DeepSeek/ChatGPT etc., as
+    ferramentas rodam aqui no OpenCode):
+    - no popup da extensão, em "Agent backend", escolha "OpenCode server"
+    - preencha a URL (e a senha, se houver)
+    - abra o site da IA e inicie o agente normalmente
 
  3) Atualizar depois é só rodar este script de novo - ele é idempotente.
 

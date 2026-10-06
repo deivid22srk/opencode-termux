@@ -1,0 +1,85 @@
+# Fork addition (see CHANGES.md): CI-built bundle for Termux/Android.
+#
+# WHY: running `bun install` on the device fails on Termux (hundreds of
+# "EACCES: Permission denied: failed to link package" - bun's hardlink backend
+# does not work on Android's filesystem), and resolving ~1.5GB of dependencies
+# on a phone is slow and fragile. This workflow builds the dependency tree
+# ONCE on an aarch64 Linux runner (same architecture as the devices), packs
+# source + node_modules into a tarball, and publishes it as a rolling release
+# asset. install-termux.sh downloads it instead of building on-device.
+#
+# The artifact is consumed by:
+#   https://github.com/deivid22srk/opencode-termux/blob/dev/install-termux.sh
+
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: write
+
+jobs:
+  termux-bundle:
+    # aarch64 runner (free for public repos) - matches Android/Termux devices,
+    # so any arch-specific optional dependency lands in the bundle for the
+    # right architecture.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Bun (same version the project pins)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies (with lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Sanity check (server boots and lists tools)
+        env:
+          OPENCODE_TOOL_API: "1"
+        run: |
+          bun run --cwd packages/opencode src/index.ts --version
+          OPENCODE_TOOL_API=1 bun run --cwd packages/opencode src/index.ts serve --port 4199 &
+          SRV=$!
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:4199/global/health > /dev/null; then break; fi
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:4199/global/health
+          echo
+          curl -sf http://127.0.0.1:4199/tool | head -c 400
+          echo
+          kill $SRV 2>/dev/null || true
+
+      - name: Pack bundle (source + node_modules)
+        run: |
+          tar \
+            --exclude='./.git' \
+            --exclude='./node_modules/.cache' \
+            --exclude='**/.turbo' \
+            -czf /tmp/opencode-termux-bundle.tar.gz \
+            .
+          ls -lh /tmp/opencode-termux-bundle.tar.gz
+
+      - name: Upload artifact (always, for debugging)
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-termux-bundle
+          path: /tmp/opencode-termux-bundle.tar.gz
+          retention-days: 7
+          compression-level: 0
+
+      - name: Publish to the rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create termux-bundle /tmp/opencode-termux-bundle.tar.gz \
+            --title "Termux bundle (rolling)" \
+            --notes "Automated build of source + node_modules for Termux/Android (aarch64). Consumed by install-termux.sh - run the one-command install from the README instead of downloading this by hand." \
+            --latest \
+          || gh release upload termux-bundle /tmp/opencode-termux-bundle.tar.gz --clobber
